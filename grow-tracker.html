@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GrowTrack</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.5.0/Recharts.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@600;700;800&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:#080808;color:#d1d5db;font-family:'DM Mono','Courier New',monospace;min-height:100vh;}
+::-webkit-scrollbar{width:3px;}
+::-webkit-scrollbar-track{background:#0a0a0a;}
+::-webkit-scrollbar-thumb{background:#1d4ed8;border-radius:2px;}
+input,select,textarea{
+  background:#111!important;border:1px solid #222!important;color:#d1d5db!important;
+  border-radius:5px!important;padding:8px 10px!important;font-family:'DM Mono',monospace!important;
+  font-size:13px!important;width:100%;transition:border-color 0.2s;outline:none;
+}
+input:focus,select:focus,textarea:focus{border-color:#2563eb!important;box-shadow:0 0 0 2px rgba(37,99,235,.12)!important;}
+select option{background:#111;}
+input[readonly]{color:#3b82f6!important;background:#0d0d0d!important;}
+.tab-btn{background:none;border:none;color:#4b5563;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.08em;padding:9px 13px;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;text-transform:uppercase;white-space:nowrap;}
+.tab-btn.active{color:#3b82f6;border-bottom-color:#3b82f6;}
+.tab-btn:hover{color:#6b7280;}
+.save-btn{background:linear-gradient(135deg,#1d4ed8,#1e40af);border:none;color:#f8fafc;padding:13px 32px;border-radius:7px;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.12em;cursor:pointer;text-transform:uppercase;transition:all .2s;width:100%;margin-top:6px;}
+.save-btn:hover{background:linear-gradient(135deg,#2563eb,#1d4ed8);}
+.save-btn.saved{background:linear-gradient(135deg,#15803d,#166534);}
+.field-label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#374151;margin-bottom:4px;display:flex;align-items:center;}
+.section-title{font-family:'Syne',sans-serif;font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:#2563eb;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #1a1a1a;}
+.card{background:#0d0d0d;border:1px solid #1a1a1a;border-radius:9px;padding:14px;margin-bottom:10px;}
+.badge{font-size:10px;padding:2px 7px;border-radius:20px;font-family:'DM Mono',monospace;}
+table{width:100%;border-collapse:collapse;font-size:11px;}
+th{background:#0a0a0a;color:#374151;font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:9px 10px;text-align:left;border-bottom:1px solid #1a1a1a;white-space:nowrap;}
+td{padding:8px 10px;border-bottom:1px solid #111;color:#9ca3af;white-space:nowrap;}
+tr:hover td{background:rgba(37,99,235,.04);}
+.metric-box{background:#0d0d0d;border:1px solid #1a1a1a;border-radius:7px;padding:11px;text-align:center;}
+.metric-val{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;}
+.metric-label{font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#374151;margin-top:2px;}
+.rw-opt{color:#22c55e;font-weight:500;}
+.rw-min{color:#3b82f6;}
+.rw-max{color:#f59e0b;}
+.spinner{width:20px;height:20px;border:2px solid #1a1a1a;border-top-color:#2563eb;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.setup-overlay{position:fixed;inset:0;background:#080808;z-index:999;display:flex;align-items:center;justify-content:center;padding:20px;}
+.setup-box{background:#0d0d0d;border:1px solid #1a1a1a;border-radius:12px;padding:28px;max-width:420px;width:100%;}
+.del-btn{background:none;border:1px solid #1f2937;color:#374151;border-radius:4px;padding:3px 7px;font-size:10px;cursor:pointer;font-family:'DM Mono',monospace;}
+.del-btn:hover{border-color:#ef4444;color:#ef4444;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// ── CONFIG ──────────────────────────────────────────────────
+// HIER deine Supabase Werte eintragen:
+const SUPABASE_URL = "DEINE_SUPABASE_URL";
+const SUPABASE_ANON_KEY = "DEIN_SUPABASE_ANON_KEY";
+// ────────────────────────────────────────────────────────────
+
+const { useState, useEffect, useMemo, useCallback } = React;
+const { createClient } = supabase;
+
+const PFLANZEN = ["Seriotica 1","Seriotica 2","Seriotica 3","Afghani 1","Afghani 2","Afghani 3"];
+const PHASEN = ["Steckling","Veg","Blüte früh","Blüte mitte","Blüte spät","Flush"];
+const TABS = ["Eingabe","Verlauf","Graphen","Woche","Richtwerte"];
+
+const RICHTWERTE = {
+  phInput:{min:5.8,max:6.2},phDrain:{min:5.8,max:6.5},
+  ecInput:{min:0.8,max:2.4},ecDrain:{min:1.0,max:3.5},
+  drain:{min:10,max:20},vpd:{min:0.8,max:1.5}
+};
+
+const RICHTWERTE_TABELLE = [
+  {param:"pH Input (Coco)",min:"5.8",optimal:"5.8 – 6.0",max:"6.2",einheit:""},
+  {param:"pH Drain (Coco)",min:"5.8",optimal:"6.0 – 6.5",max:"6.8",einheit:""},
+  {param:"EC Input Steckling",min:"0.8",optimal:"1.0 – 1.2",max:"1.4",einheit:"mS/cm"},
+  {param:"EC Input Veg",min:"1.2",optimal:"1.4 – 1.8",max:"2.0",einheit:"mS/cm"},
+  {param:"EC Input Blüte früh",min:"1.6",optimal:"1.8 – 2.2",max:"2.4",einheit:"mS/cm"},
+  {param:"EC Input Blüte spät",min:"1.8",optimal:"2.0 – 2.4",max:"2.6",einheit:"mS/cm"},
+  {param:"EC Drain",min:"1.0",optimal:"1.5 – 3.0",max:"3.5",einheit:"mS/cm"},
+  {param:"Drain %",min:"10",optimal:"10 – 20",max:"30",einheit:"%"},
+  {param:"VPD Steckling",min:"0.4",optimal:"0.4 – 0.8",max:"0.8",einheit:"kPa"},
+  {param:"VPD Veg",min:"0.8",optimal:"0.8 – 1.2",max:"1.5",einheit:"kPa"},
+  {param:"VPD Blüte früh",min:"1.0",optimal:"1.0 – 1.5",max:"1.8",einheit:"kPa"},
+  {param:"VPD Blüte spät",min:"1.5",optimal:"1.5 – 2.0",max:"2.0",einheit:"kPa"},
+  {param:"Temperatur",min:"20",optimal:"22 – 26",max:"28",einheit:"°C"},
+  {param:"Luftfeuchtigkeit Veg",min:"50",optimal:"60 – 70",max:"75",einheit:"%"},
+  {param:"Luftfeuchtigkeit Blüte",min:"40",optimal:"45 – 55",max:"60",einheit:"%"},
+  {param:"pH Erde Input",min:"6.0",optimal:"6.2 – 6.5",max:"6.8",einheit:""},
+  {param:"pH Erde Drain",min:"6.2",optimal:"6.5 – 7.0",max:"7.2",einheit:""},
+];
+
+const SC = {ok:"#22c55e",warn:"#f59e0b",bad:"#ef4444",null:"#374151"};
+
+function getStatus(val,key){
+  if(!val||val==="")return null;
+  const r=RICHTWERTE[key]; if(!r)return null;
+  const v=parseFloat(val); if(isNaN(v))return null;
+  if(v>=r.min&&v<=r.max)return"ok";
+  if(v<r.min*0.9||v>r.max*1.15)return"bad";
+  return"warn";
+}
+
+function Dot({s}){
+  return React.createElement("span",{style:{display:"inline-block",width:7,height:7,borderRadius:"50%",backgroundColor:SC[s]||SC.null,marginLeft:5,verticalAlign:"middle"}});
+}
+
+const emptyForm=()=>({
+  datum:new Date().toISOString().split("T")[0],
+  pflanze:"Seriotica 1",phase:"Veg",blutewoche:"",
+  ph_input:"",ec_input:"",giesmenge:"",giesszeit:"",
+  ph_drain:"",ec_drain:"",drain_menge:"",
+  canna_a:"",canna_b:"",rhizotonic:"",calmag:"",bittersalz:"",
+  temp:"",luftf:"",notizen:""
+});
+
+function calcVPD(t,rh){
+  const tv=parseFloat(t),rv=parseFloat(rh);
+  if(isNaN(tv)||isNaN(rv))return"";
+  const bl=tv-1.5;
+  return((1-rv/100)*0.6108*Math.exp((17.27*bl)/(bl+237.3))).toFixed(2);
+}
+function calcDrain(g,d){
+  const gv=parseFloat(g),dv=parseFloat(d);
+  if(isNaN(gv)||isNaN(dv)||gv===0)return"";
+  return((dv/gv)*100).toFixed(1);
+}
+
+// ── SETUP OVERLAY ────────────────────────────────────────────
+function SetupOverlay({onDone}){
+  const [url,setUrl]=useState("");
+  const [key,setKey]=useState("");
+  const [err,setErr]=useState("");
+  const [loading,setLoading]=useState(false);
+
+  async function handleConnect(){
+    if(!url.startsWith("https://")||!key){setErr("Bitte beide Felder ausfüllen.");return;}
+    setLoading(true);setErr("");
+    try{
+      const sb=createClient(url.trim(),key.trim());
+      const{error}=await sb.from("messungen").select("id").limit(1);
+      if(error&&error.code!=="42P01"){
+        setErr("Verbindung fehlgeschlagen: "+error.message);
+        setLoading(false);return;
+      }
+      localStorage.setItem("gt_url",url.trim());
+      localStorage.setItem("gt_key",key.trim());
+      onDone(url.trim(),key.trim());
+    }catch(e){setErr("Fehler: "+e.message);}
+    setLoading(false);
+  }
+
+  return React.createElement("div",{className:"setup-overlay"},
+    React.createElement("div",{className:"setup-box"},
+      React.createElement("div",{style:{fontFamily:"'Syne',sans-serif",fontSize:20,fontWeight:800,color:"#f9fafb",marginBottom:4}},
+        "GROW",React.createElement("span",{style:{color:"#2563eb"}},"TRACK")
+      ),
+      React.createElement("div",{style:{fontSize:10,color:"#374151",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:20}},"Supabase Verbindung"),
+      React.createElement("div",{style:{fontSize:12,color:"#4b5563",marginBottom:16,lineHeight:1.7}},
+        "Trage deine Supabase Zugangsdaten ein. Du findest sie in deinem Supabase Projekt unter ",
+        React.createElement("span",{style:{color:"#3b82f6"}},"Settings → API"),
+      ),
+      React.createElement("div",{style:{marginBottom:10}},
+        React.createElement("div",{className:"field-label"},"Project URL"),
+        React.createElement("input",{type:"text",value:url,onChange:e=>setUrl(e.target.value),placeholder:"https://xxxxx.supabase.co"})
+      ),
+      React.createElement("div",{style:{marginBottom:16}},
+        React.createElement("div",{className:"field-label"},"Anon Public Key"),
+        React.createElement("input",{type:"text",value:key,onChange:e=>setKey(e.target.value),placeholder:"eyJhbGciOiJIUzI1NiIs..."})
+      ),
+      err&&React.createElement("div",{style:{color:"#ef4444",fontSize:11,marginBottom:12,padding:"8px 10px",background:"rgba(239,68,68,.08)",borderRadius:5}},err),
+      React.createElement("button",{className:"save-btn",onClick:handleConnect,disabled:loading},
+        loading?React.createElement("div",{className:"spinner"}):("Verbinden & Starten")
+      ),
+      React.createElement("div",{style:{marginTop:16,padding:"12px",background:"#0a0a0a",borderRadius:7,border:"1px solid #1a1a1a"}},
+        React.createElement("div",{style:{fontSize:10,color:"#2563eb",letterSpacing:"0.15em",textTransform:"uppercase",marginBottom:8}},"Tabelle in Supabase anlegen"),
+        React.createElement("div",{style:{fontSize:10,color:"#374151",lineHeight:1.8}},
+          "1. Supabase → SQL Editor öffnen",React.createElement("br"),
+          "2. Folgenden Code einfügen und ausführen:",React.createElement("br"),
+        ),
+        React.createElement("div",{style:{marginTop:8,padding:"10px",background:"#060606",borderRadius:5,border:"1px solid #111",fontSize:10,color:"#6b7280",fontFamily:"monospace",lineHeight:1.8,overflowX:"auto",whiteSpace:"pre"}},
+`CREATE TABLE messungen (
+  id bigserial PRIMARY KEY,
+  created_at timestamptz DEFAULT now(),
+  datum date,
+  pflanze text,
+  phase text,
+  blutewoche int,
+  ph_input numeric,
+  ec_input numeric,
+  giesmenge numeric,
+  giesszeit text,
+  ph_drain numeric,
+  ec_drain numeric,
+  drain_menge numeric,
+  vpd numeric,
+  drain_pct numeric,
+  canna_a numeric,
+  canna_b numeric,
+  rhizotonic numeric,
+  calmag numeric,
+  bittersalz numeric,
+  temp numeric,
+  luftf numeric,
+  notizen text
+);
+ALTER TABLE messungen ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "allow_all" ON messungen FOR ALL USING (true) WITH CHECK (true);`)
+      )
+    )
+  );
+}
+
+// ── MAIN APP ─────────────────────────────────────────────────
+function App(){
+  const [sbUrl,setSbUrl]=useState(()=>localStorage.getItem("gt_url")||"");
+  const [sbKey,setSbKey]=useState(()=>localStorage.getItem("gt_key")||"");
+  const [ready,setReady]=useState(false);
+  const [sb,setSb]=useState(null);
+  const [tab,setTab]=useState("Eingabe");
+  const [form,setForm]=useState(emptyForm());
+  const [entries,setEntries]=useState([]);
+  const [loading,setLoading]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [saved,setSaved]=useState(false);
+  const [filterPflanze,setFilterPflanze]=useState("Alle");
+  const [err,setErr]=useState("");
+
+  // Init Supabase
+  useEffect(()=>{
+    const u=localStorage.getItem("gt_url"),k=localStorage.getItem("gt_key");
+    if(u&&k){
+      const client=createClient(u,k);
+      setSb(client);setReady(true);
+    }
+  },[]);
+
+  function handleSetupDone(url,key){
+    const client=createClient(url,key);
+    setSb(client);setSbUrl(url);setSbKey(key);setReady(true);
+  }
+
+  // Load entries
+  useEffect(()=>{
+    if(!sb||!ready)return;
+    setLoading(true);
+    sb.from("messungen").select("*").order("created_at",{ascending:false}).then(({data,error})=>{
+      if(!error&&data)setEntries(data);
+      else if(error)setErr("Ladefehler: "+error.message);
+      setLoading(false);
+    });
+  },[sb,ready]);
+
+  const vpd=calcVPD(form.temp,form.luftf);
+  const drainPct=calcDrain(form.giesmenge,form.drain_menge);
+
+  function handleChange(e){setForm(f=>({...f,[e.target.name]:e.target.value}));}
+
+  async function handleSave(){
+    if(!sb)return;
+    setSaving(true);setErr("");
+    const row={
+      datum:form.datum,pflanze:form.pflanze,phase:form.phase,
+      blutewoche:form.blutewoche?parseInt(form.blutewoche):null,
+      ph_input:form.ph_input?parseFloat(form.ph_input):null,
+      ec_input:form.ec_input?parseFloat(form.ec_input):null,
+      giesmenge:form.giesmenge?parseFloat(form.giesmenge):null,
+      giesszeit:form.giesszeit||null,
+      ph_drain:form.ph_drain?parseFloat(form.ph_drain):null,
+      ec_drain:form.ec_drain?parseFloat(form.ec_drain):null,
+      drain_menge:form.drain_menge?parseFloat(form.drain_menge):null,
+      vpd:vpd?parseFloat(vpd):null,
+      drain_pct:drainPct?parseFloat(drainPct):null,
+      canna_a:form.canna_a?parseFloat(form.canna_a):null,
+      canna_b:form.canna_b?parseFloat(form.canna_b):null,
+      rhizotonic:form.rhizotonic?parseFloat(form.rhizotonic):null,
+      calmag:form.calmag?parseFloat(form.calmag):null,
+      bittersalz:form.bittersalz?parseFloat(form.bittersalz):null,
+      temp:form.temp?parseFloat(form.temp):null,
+      luftf:form.luftf?parseFloat(form.luftf):null,
+      notizen:form.notizen||null
+    };
+    const{data,error}=await sb.from("messungen").insert([row]).select();
+    if(!error&&data){
+      setEntries(prev=>[data[0],...prev]);
+      setSaved(true);setTimeout(()=>setSaved(false),2000);
+      setForm(f=>({...emptyForm(),datum:f.datum,phase:f.phase,blutewoche:f.blutewoche,
+        canna_a:f.canna_a,canna_b:f.canna_b,rhizotonic:f.rhizotonic,calmag:f.calmag,
+        bittersalz:f.bittersalz,temp:f.temp,luftf:f.luftf}));
+    }else if(error){setErr("Speicherfehler: "+error.message);}
+    setSaving(false);
+  }
+
+  async function handleDelete(id){
+    if(!sb)return;
+    await sb.from("messungen").delete().eq("id",id);
+    setEntries(prev=>prev.filter(e=>e.id!==id));
+  }
+
+  function handleLogout(){
+    localStorage.removeItem("gt_url");localStorage.removeItem("gt_key");
+    setSb(null);setReady(false);setEntries([]);
+  }
+
+  const filtered=filterPflanze==="Alle"?entries:entries.filter(e=>e.pflanze===filterPflanze);
+
+  const graphData=useMemo(()=>[...entries].reverse().map(e=>({
+    datum:e.datum,
+    phInput:e.ph_input||null,phDrain:e.ph_drain||null,
+    ecInput:e.ec_input||null,ecDrain:e.ec_drain||null,
+    drainPct:e.drain_pct||null,vpd:e.vpd||null
+  })),[entries]);
+
+  const wochenData=useMemo(()=>{
+    const map={};
+    entries.forEach(e=>{
+      const k=`W${e.blutewoche||"?"}`;
+      if(!map[k])map[k]={woche:k,entries:[]};
+      map[k].entries.push(e);
+    });
+    return Object.values(map).map(w=>{
+      const avg=k=>{const v=w.entries.map(e=>parseFloat(e[k])).filter(x=>!isNaN(x));return v.length?(v.reduce((a,b)=>a+b,0)/v.length).toFixed(2):"-";};
+      return{woche:w.woche,count:w.entries.length,phInput:avg("ph_input"),phDrain:avg("ph_drain"),ecInput:avg("ec_input"),ecDrain:avg("ec_drain"),drainPct:avg("drain_pct"),vpd:avg("vpd")};
+    });
+  },[entries]);
+
+  if(!ready)return React.createElement(SetupOverlay,{onDone:handleSetupDone});
+
+  const {LineChart,Line,XAxis,YAxis,CartesianGrid,Tooltip,Legend,ResponsiveContainer,ReferenceLine}=Recharts;
+
+  function Field({label,name,type,placeholder,readOnly,value,step,onChange}){
+    return React.createElement("div",null,
+      React.createElement("div",{className:"field-label"},label),
+      React.createElement("input",{type:type||"text",name,value:value!==undefined?value:(form[name]||""),onChange:onChange||handleChange,placeholder,readOnly,step})
+    );
+  }
+
+  function FieldS({label,name,statusKey,type,placeholder,step}){
+    const val=form[name];
+    return React.createElement("div",null,
+      React.createElement("div",{className:"field-label"},label,React.createElement(Dot,{s:getStatus(val,statusKey)})),
+      React.createElement("input",{type:type||"number",name,value:val,onChange:handleChange,placeholder,step:step||"0.1"})
+    );
+  }
+
+  function MetricBox({label,val,statusKey}){
+    const color=val?(SC[getStatus(val,statusKey)]||"#2563eb"):"#1f2937";
+    return React.createElement("div",{className:"metric-box"},
+      React.createElement("div",{className:"metric-val",style:{color,fontSize:17}},val||"—"),
+      React.createElement("div",{className:"metric-label"},label)
+    );
+  }
+
+  return React.createElement("div",null,
+    // HEADER
+    React.createElement("div",{style:{background:"#0a0a0a",borderBottom:"1px solid #161616",padding:"14px 18px",position:"sticky",top:0,zIndex:100}},
+      React.createElement("div",{style:{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}},
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontFamily:"'Syne',sans-serif",fontSize:17,fontWeight:800,letterSpacing:"0.06em",color:"#f9fafb"}},
+            "GROW",React.createElement("span",{style:{color:"#2563eb"}},"TRACK")
+          ),
+          React.createElement("div",{style:{fontSize:9,color:"#1f2937",letterSpacing:"0.18em",textTransform:"uppercase"}},"Cannabis Monitor")
+        ),
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12}},
+          React.createElement("div",{style:{textAlign:"right"}},
+            React.createElement("div",{style:{fontSize:11,color:"#374151"}},entries.length," Einträge"),
+            React.createElement("div",{style:{fontSize:9,color:"#1f2937"}},new Date().toLocaleDateString("de-DE"))
+          ),
+          React.createElement("button",{onClick:handleLogout,style:{background:"none",border:"1px solid #1a1a1a",color:"#374151",borderRadius:4,padding:"4px 8px",fontSize:9,cursor:"pointer",fontFamily:"'DM Mono',monospace",letterSpacing:"0.1em"}},"⚙")
+        )
+      ),
+      React.createElement("div",{style:{display:"flex",overflowX:"auto",borderBottom:"1px solid #161616",marginBottom:-1}},
+        TABS.map(t=>React.createElement("button",{key:t,className:`tab-btn ${tab===t?"active":""}`,onClick:()=>setTab(t)},t))
+      )
+    ),
+
+    // CONTENT
+    React.createElement("div",{style:{padding:"14px",maxWidth:600,margin:"0 auto"}},
+      err&&React.createElement("div",{style:{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.2)",borderRadius:6,padding:"10px 12px",marginBottom:10,fontSize:11,color:"#ef4444"}},err),
+
+      // EINGABE
+      tab==="Eingabe"&&React.createElement("div",null,
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginBottom:12}},
+          React.createElement(MetricBox,{label:"pH Input",val:form.ph_input,statusKey:"phInput"}),
+          React.createElement(MetricBox,{label:"EC Input",val:form.ec_input,statusKey:"ecInput"}),
+          React.createElement(MetricBox,{label:"VPD kPa",val:vpd,statusKey:"vpd"})
+        ),
+        React.createElement("div",{className:"card"},
+          React.createElement("div",{className:"section-title"},"Allgemein"),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}},
+            React.createElement(Field,{label:"Datum",name:"datum",type:"date"}),
+            React.createElement(Field,{label:"Blütewoche",name:"blutewoche",type:"number",placeholder:"1"}),
+            React.createElement("div",null,React.createElement("div",{className:"field-label"},"Pflanze"),React.createElement("select",{name:"pflanze",value:form.pflanze,onChange:handleChange},PFLANZEN.map(p=>React.createElement("option",{key:p},p)))),
+            React.createElement("div",null,React.createElement("div",{className:"field-label"},"Phase"),React.createElement("select",{name:"phase",value:form.phase,onChange:handleChange},PHASEN.map(p=>React.createElement("option",{key:p},p))))
+          )
+        ),
+        React.createElement("div",{className:"card"},
+          React.createElement("div",{className:"section-title"},"💧 Input"),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}},
+            React.createElement(FieldS,{label:"pH Input",name:"ph_input",statusKey:"phInput",placeholder:"5.9"}),
+            React.createElement(FieldS,{label:"EC Input (mS/cm)",name:"ec_input",statusKey:"ecInput",placeholder:"1.4"}),
+            React.createElement(Field,{label:"Gießmenge (ml)",name:"giesmenge",type:"number",placeholder:"500"}),
+            React.createElement(Field,{label:"Uhrzeit",name:"giesszeit",type:"time"})
+          )
+        ),
+        React.createElement("div",{className:"card"},
+          React.createElement("div",{className:"section-title"},"🔽 Drain"),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}},
+            React.createElement(FieldS,{label:"pH Drain",name:"ph_drain",statusKey:"phDrain",placeholder:"6.3"}),
+            React.createElement(FieldS,{label:"EC Drain (mS/cm)",name:"ec_drain",statusKey:"ecDrain",placeholder:"1.5"}),
+            React.createElement(Field,{label:"Drain Menge (ml)",name:"drain_menge",type:"number",placeholder:"75"}),
+            React.createElement("div",null,
+              React.createElement("div",{className:"field-label"},"Drain %",React.createElement(Dot,{s:getStatus(drainPct,"drain")})),
+              React.createElement("input",{value:drainPct?`${drainPct}%`:"",readOnly:true,placeholder:"Auto"})
+            )
+          ),
+          form.ph_input&&form.ec_input&&form.ph_drain&&form.ec_drain&&
+          React.createElement("div",{style:{marginTop:9,padding:"7px 11px",background:"#0a0a0a",borderRadius:5,border:"1px solid #1a1a1a",fontSize:11}},
+            React.createElement("span",{style:{color:"#374151"}},"EC DIFF: "),
+            React.createElement("span",{style:{color:(parseFloat(form.ec_drain)-parseFloat(form.ec_input))>0?"#22c55e":"#ef4444",fontWeight:500}},
+              (parseFloat(form.ec_drain)-parseFloat(form.ec_input)).toFixed(2)," mS/cm"
+            )
+          )
+        ),
+        React.createElement("div",{className:"card"},
+          React.createElement("div",{className:"section-title"},"🧪 Dünger (ml/L)"),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}},
+            ...[["canna_a","Canna A"],["canna_b","Canna B"],["rhizotonic","Rhizotonic"],["calmag","CalMag"],["bittersalz","Bittersalz (g/L)"]].map(([k,l])=>
+              React.createElement(Field,{key:k,label:l,name:k,type:"number",placeholder:"0",step:"0.5"})
+            )
+          )
+        ),
+        React.createElement("div",{className:"card"},
+          React.createElement("div",{className:"section-title"},"🌡️ Klima"),
+          React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:9}},
+            React.createElement(Field,{label:"Temp (°C)",name:"temp",type:"number",placeholder:"24",step:"0.5"}),
+            React.createElement(Field,{label:"Luftf. (%)",name:"luftf",type:"number",placeholder:"65"}),
+            React.createElement("div",null,
+              React.createElement("div",{className:"field-label"},"VPD",React.createElement(Dot,{s:getStatus(vpd,"vpd")})),
+              React.createElement("input",{value:vpd||"",readOnly:true,placeholder:"Auto"})
+            )
+          )
+        ),
+        React.createElement("div",{className:"card"},
+          React.createElement("div",{className:"section-title"},"📝 Notizen"),
+          React.createElement("textarea",{name:"notizen",value:form.notizen,onChange:handleChange,placeholder:"Beobachtungen, Auffälligkeiten...",rows:3,style:{resize:"vertical"}})
+        ),
+        React.createElement("button",{className:`save-btn ${saved?"saved":""}`,onClick:handleSave,disabled:saving},
+          saving?React.createElement("div",{className:"spinner"}):saved?"✓ Gespeichert":"Eintrag Speichern"
+        )
+      ),
+
+      // VERLAUF
+      tab==="Verlauf"&&React.createElement("div",null,
+        React.createElement("div",{className:"card",style:{padding:"9px 14px",marginBottom:10}},
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10}},
+            React.createElement("div",{className:"field-label",style:{marginBottom:0,whiteSpace:"nowrap"}},"Filter:"),
+            React.createElement("select",{value:filterPflanze,onChange:e=>setFilterPflanze(e.target.value),style:{maxWidth:200}},
+              React.createElement("option",null,"Alle"),
+              PFLANZEN.map(p=>React.createElement("option",{key:p},p))
+            )
+          )
+        ),
+        loading&&React.createElement("div",{style:{textAlign:"center",padding:30}},React.createElement("div",{className:"spinner"})),
+        !loading&&filtered.length===0&&React.createElement("div",{style:{textAlign:"center",padding:"60px 20px",color:"#1f2937"}},
+          React.createElement("div",{style:{fontSize:28,marginBottom:10}},"📊"),
+          React.createElement("div",{style:{fontSize:12}},"Noch keine Einträge")
+        ),
+        !loading&&filtered.map(e=>
+          React.createElement("div",{key:e.id,className:"card",style:{padding:"13px 14px"}},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:9}},
+              React.createElement("div",null,
+                React.createElement("span",{style:{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:13,color:"#f9fafb"}},e.pflanze),
+                React.createElement("span",{className:"badge",style:{background:"rgba(37,99,235,.12)",color:"#60a5fa",marginLeft:7}},e.phase),
+                e.blutewoche&&React.createElement("span",{className:"badge",style:{background:"rgba(55,65,81,.3)",color:"#4b5563",marginLeft:4}},"W",e.blutewoche)
+              ),
+              React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8}},
+                React.createElement("div",{style:{fontSize:10,color:"#1f2937"}},e.datum),
+                React.createElement("button",{className:"del-btn",onClick:()=>handleDelete(e.id)},"✕")
+              )
+            ),
+            React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:5}},
+              ...[
+                {label:"pH in",val:e.ph_input,key:"phInput"},
+                {label:"pH drain",val:e.ph_drain,key:"phDrain"},
+                {label:"EC in",val:e.ec_input,key:"ecInput"},
+                {label:"EC drain",val:e.ec_drain,key:"ecDrain"},
+                {label:"Drain %",val:e.drain_pct?`${e.drain_pct}%`:"",key:"drain"},
+                {label:"VPD",val:e.vpd,key:"vpd"},
+                {label:"Temp",val:e.temp?`${e.temp}°`:""},
+                {label:"RH",val:e.luftf?`${e.luftf}%`:""},
+              ].map(({label,val,key})=>
+                React.createElement("div",{key:label,style:{background:"#0a0a0a",borderRadius:5,padding:"5px 7px",border:"1px solid #111"}},
+                  React.createElement("div",{style:{fontSize:8,color:"#1f2937",letterSpacing:"0.1em",textTransform:"uppercase"}},label),
+                  React.createElement("div",{style:{fontSize:12,color:key?(SC[getStatus(val,key)]||"#6b7280"):"#6b7280",fontWeight:500}},val||"—")
+                )
+              )
+            ),
+            e.notizen&&React.createElement("div",{style:{marginTop:7,fontSize:11,color:"#374151",borderTop:"1px solid #111",paddingTop:7}},e.notizen)
+          )
+        )
+      ),
+
+      // GRAPHEN
+      tab==="Graphen"&&React.createElement("div",null,
+        graphData.length<2
+          ?React.createElement("div",{style:{textAlign:"center",padding:"60px 20px",color:"#1f2937"}},
+            React.createElement("div",{style:{fontSize:28,marginBottom:10}},"📈"),
+            React.createElement("div",{style:{fontSize:12}},"Mindestens 2 Einträge für Graphen")
+          )
+          :[
+            {title:"pH Verlauf",lines:[{key:"phInput",color:"#3b82f6",name:"pH Input"},{key:"phDrain",color:"#22c55e",name:"pH Drain"}],refs:[5.8,6.5],domain:[5,7.5]},
+            {title:"EC Verlauf",lines:[{key:"ecInput",color:"#3b82f6",name:"EC Input"},{key:"ecDrain",color:"#f59e0b",name:"EC Drain"}],refs:[3.5],domain:[0,5]},
+            {title:"Drain %",lines:[{key:"drainPct",color:"#818cf8",name:"Drain %"}],refs:[10,20],domain:[0,40]},
+            {title:"VPD (kPa)",lines:[{key:"vpd",color:"#34d399",name:"VPD"}],refs:[0.8,1.5],domain:[0,3]},
+          ].map(({title,lines,refs,domain})=>
+            React.createElement("div",{key:title,className:"card"},
+              React.createElement("div",{className:"section-title"},title),
+              React.createElement(ResponsiveContainer,{width:"100%",height:170},
+                React.createElement(LineChart,{data:graphData,margin:{top:5,right:8,left:-22,bottom:5}},
+                  React.createElement(CartesianGrid,{strokeDasharray:"3 3",stroke:"#141414"}),
+                  React.createElement(XAxis,{dataKey:"datum",tick:{fontSize:8,fill:"#374151"}}),
+                  React.createElement(YAxis,{domain,tick:{fontSize:8,fill:"#374151"}}),
+                  React.createElement(Tooltip,{contentStyle:{background:"#0d0d0d",border:"1px solid #1a1a1a",borderRadius:5,fontSize:11,color:"#d1d5db"}}),
+                  React.createElement(Legend,{wrapperStyle:{fontSize:10,color:"#374151"}}),
+                  ...refs.map((r,i)=>React.createElement(ReferenceLine,{key:i,y:r,stroke:"#ef4444",strokeDasharray:"4 4",strokeOpacity:0.35})),
+                  ...lines.map(l=>React.createElement(Line,{key:l.key,type:"monotone",dataKey:l.key,stroke:l.color,strokeWidth:2,dot:{r:2.5,fill:l.color},name:l.name,connectNulls:true}))
+                )
+              )
+            )
+          )
+      ),
+
+      // WOCHE
+      tab==="Woche"&&React.createElement("div",null,
+        wochenData.length===0
+          ?React.createElement("div",{style:{textAlign:"center",padding:"60px 20px",color:"#1f2937"}},
+            React.createElement("div",{style:{fontSize:28,marginBottom:10}},"📋"),
+            React.createElement("div",{style:{fontSize:12}},"Noch keine Daten")
+          )
+          :wochenData.map(w=>
+            React.createElement("div",{key:w.woche,className:"card"},
+              React.createElement("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:10}},
+                React.createElement("div",{style:{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:15,color:"#2563eb"}},w.woche),
+                React.createElement("span",{className:"badge",style:{background:"rgba(55,65,81,.3)",color:"#4b5563"}},w.count," Einträge")
+              ),
+              React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7}},
+                ...[
+                  {label:"Ø pH Input",val:w.phInput,key:"phInput"},
+                  {label:"Ø pH Drain",val:w.phDrain,key:"phDrain"},
+                  {label:"Ø EC Input",val:w.ecInput,key:"ecInput"},
+                  {label:"Ø EC Drain",val:w.ecDrain,key:"ecDrain"},
+                  {label:"Ø Drain %",val:w.drainPct,key:"drain"},
+                  {label:"Ø VPD",val:w.vpd,key:"vpd"},
+                ].map(({label,val,key})=>
+                  React.createElement("div",{key:label,style:{background:"#0a0a0a",borderRadius:5,padding:"8px 9px",border:"1px solid #111",textAlign:"center"}},
+                    React.createElement("div",{style:{fontSize:8,color:"#1f2937",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:3}},label),
+                    React.createElement("div",{style:{fontSize:14,color:SC[getStatus(val,key)]||"#6b7280",fontWeight:600}},val)
+                  )
+                )
+              )
+            )
+          )
+      ),
+
+      // RICHTWERTE
+      tab==="Richtwerte"&&React.createElement("div",null,
+        React.createElement("div",{className:"card",style:{marginBottom:12}},
+          React.createElement("div",{style:{fontFamily:"'Syne',sans-serif",fontSize:10,letterSpacing:"0.18em",textTransform:"uppercase",color:"#2563eb",marginBottom:6}},"Legende"),
+          React.createElement("div",{style:{display:"flex",gap:16,fontSize:11}},
+            React.createElement("span",null,React.createElement("span",{className:"rw-min"},"■")," Min"),
+            React.createElement("span",null,React.createElement("span",{className:"rw-opt"},"■")," Optimal"),
+            React.createElement("span",null,React.createElement("span",{className:"rw-max"},"■")," Max")
+          )
+        ),
+        React.createElement("div",{style:{overflowX:"auto"}},
+          React.createElement("table",null,
+            React.createElement("thead",null,
+              React.createElement("tr",null,
+                React.createElement("th",null,"Parameter"),
+                React.createElement("th",{style:{color:"#3b82f6"}},"Min"),
+                React.createElement("th",{style:{color:"#22c55e"}},"Optimal"),
+                React.createElement("th",{style:{color:"#f59e0b"}},"Max"),
+                React.createElement("th",null,"Einheit")
+              )
+            ),
+            React.createElement("tbody",null,
+              RICHTWERTE_TABELLE.map((r,i)=>
+                React.createElement("tr",{key:i},
+                  React.createElement("td",{style:{color:"#9ca3af",fontSize:11}},r.param),
+                  React.createElement("td",{className:"rw-min"},r.min),
+                  React.createElement("td",{className:"rw-opt"},r.optimal),
+                  React.createElement("td",{className:"rw-max"},r.max),
+                  React.createElement("td",{style:{color:"#374151",fontSize:10}},r.einheit)
+                )
+              )
+            )
+          )
+        )
+      )
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>
